@@ -143,6 +143,7 @@ def plot_revenue_trend(df):
                  f'{value:,.2f}', ha='center', fontsize=10, color='black')
 
     plt.tight_layout()
+    plt.savefig('docs/revenue_trend.png', bbox_inches='tight')
     plt.show()
 
 
@@ -225,6 +226,75 @@ def count_originals_in_june(df):
     return may_originals_june.shape[0]
 
 
+def calculate_bonus(df):
+    """
+    Вычисляет бонусы для каждого менеджера на 01.07.2021 по описанным правилам.
+
+    Args:
+        df (pd.DataFrame): Исходный DataFrame с данными о сделках.
+
+    Returns:
+        pd.DataFrame: DataFrame с остатками бонусов на 01.07.2021 по менеджерам.
+    """
+    # Фильтрация сделок до июня 2021 года
+    before_july_deals = df[
+        (df['month_year'].dt.month < 7) &  # Месяц до июля (меньше 7)
+        (df['month_year'].dt.year == 2021)  # Год = 2021
+        ]
+
+    # Фильтрация только оплаченных сделок с оригиналом договора для новых сделок
+    new_deals = before_july_deals[(before_july_deals['new/current'] == 'новая') &
+                                  (before_july_deals['status'] == 'ОПЛАЧЕНО') &
+                                  (before_july_deals['document'] == 'оригинал') &
+                                  (before_july_deals['receiving_date'].dt.month < 7)
+        # Оригинал документа приходит до июля
+                                  ].copy()
+
+
+    # Бонусы для новых сделок
+    new_deals.loc[:, 'bonus'] = new_deals.apply(lambda row: row['sum'] * 0.07 / 100, axis=1)
+
+    # Для текущих сделок
+    current_deals = before_july_deals[(before_july_deals['new/current'] == 'текущая') &
+                                      (before_july_deals['status'] != 'ПРОСРОЧЕНО') &
+                                      (before_july_deals['document'] == 'оригинал') &
+                                      (before_july_deals['receiving_date'].dt.month < 7)
+        # Оригинал документа приходит до июля
+    ].copy()
+
+    # Бонусы для текущих сделок
+    current_deals.loc[:, 'bonus'] = current_deals.apply(
+        lambda row: row['sum'] * 0.05 / 100 if row['sum'] > 10000 else row['sum'] * 0.03 / 100, axis=1)
+
+    # Суммируем бонусы для каждого менеджера
+    total_bonuses = pd.concat([new_deals, current_deals])
+    manager_bonuses = total_bonuses.groupby('sale')['bonus'].sum()
+
+    # TODO: Реализовать логику для случаев, когда оригинал документа приходит позже июня
+    # # Для сделок, где оригинал приходит позже (позже июля)
+    # remaining_bonuses = df[(df['receiving_date'].dt.month > 6) &
+    #                        (df['receiving_date'].dt.year == 2021) &
+    #                        (df['document'] == 'оригинал')].copy()
+    #
+    #
+    # remaining_bonuses.loc[:, 'bonus'] = remaining_bonuses.apply(
+    #     lambda row: row['sum'] * 0.07 / 100 if row['new/current'] == 'новая' and row['status'] == 'ОПЛАЧЕНО'
+    #     else (row['sum'] * 0.05 / 100 if row['new/current'] == 'текущая' and row['sum'] > 10000
+    #           else row['sum'] * 0.03 / 100), axis=1)
+    #
+    # # Суммируем остаточные бонусы
+    # remaining_manager_bonuses = remaining_bonuses.groupby('sale')['bonus'].sum()
+    #
+    # # Добавляем остаточные бонусы
+    # for manager, bonus in remaining_manager_bonuses.items():
+    #     if manager in manager_bonuses:
+    #         manager_bonuses[manager] += bonus
+    #     else:
+    #         manager_bonuses[manager] = bonus
+
+    return manager_bonuses
+
+
 def main():
     """
     Основная функция для загрузки, подготовки данных и выполнения анализа.
@@ -235,6 +305,7 @@ def main():
     3. Определяет лучшего менеджера за сентябрь 2021 года.
     4. Определяет преобладающий тип сделок в октябре 2021 года.
     5. Считает количество оригиналов договоров по майским сделкам, полученных в июне 2021 года.
+    6. Вычисляет бонусы для каждого менеджера.
 
     В случае возникновения ошибок в процессе загрузки данных или анализа, выводится соответствующее сообщение об ошибке.
 
@@ -244,7 +315,7 @@ def main():
     Returns:
         None
     """
-    file_path = "data.xlsx"
+    file_path = "data.xlsx"  # Относительный путь до файла с данными для анализа
 
     try:
         df = load_and_prepare_data(file_path)
@@ -278,6 +349,18 @@ def main():
         # Задача 5
         originals_count = count_originals_in_june(df)
         print(f"5. Оригиналов договора по майским сделкам, полученных в июне 2021: {originals_count}")
+
+        # Задача 6: Вычисление бонусов
+        manager_bonuses = calculate_bonus(df)
+        manager_bonuses = manager_bonuses.round(2)
+
+        if isinstance(manager_bonuses, pd.Series):
+            manager_bonuses = manager_bonuses.reset_index()
+            manager_bonuses.columns = ['sale', 'bonus (руб.)']
+
+        print("6. Бонусы для менеджеров на 01.07.2021:")
+        print(manager_bonuses.to_string(index=False, header=True))
+
 
     except Exception as e:
         print(f"Ошибка в процессе анализа: {e}")
