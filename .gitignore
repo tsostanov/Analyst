@@ -1,0 +1,4 @@
+# Игнорировать файл data.xlsx
+data.xlsx
+.idea/
+__pycache__/
